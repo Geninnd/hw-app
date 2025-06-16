@@ -90,20 +90,11 @@ docker push localhost:5000/hw-app:14
 
 ## 6. Configuração do Jenkins
 
-1. Inicie o Jenkins via Docker:
-   ```bash
-   docker volume create jenkins-data
-   docker run --name jenkins-server --restart=unless-stopped -d \
-     -p 8080:8080 -p 50000:50000 \
-     -v jenkins-data:/var/jenkins_home \
-     -v /var/run/docker.sock:/var/run/docker.sock \
-     -v $(which docker):/usr/bin/docker \
-     jenkins/jenkins:lts-jdk17
-   ```
+1. O Jenkins já deve estar rodando via Docker após executar o script de instalação.
 
 2. Obtenha a senha inicial:
    ```bash
-   docker exec jenkins-server cat /var/jenkins_home/secrets/initialAdminPassword
+   docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
    ```
 
 3. Acesse Jenkins em [http://localhost:8080](http://localhost:8080)
