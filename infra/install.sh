@@ -47,14 +47,20 @@ fi
 minikube delete --all --purge >/dev/null 2>&1 || true
 
 # Iniciar Minikube com configuração específica
-echo "🚀 Iniciando Minikube..."
+echo "🚀 Iniciando Minikube com registro inseguro..."
 minikube start \
   --driver=docker \
   --kubernetes-version=v1.26.3 \
   --memory=4096 \
   --cpus=2 \
   --addons=storage-provisioner \
-  --addons=default-storageclass
+  --addons=default-storageclass \
+  --insecure-registry="localhost:5000"
+
+# Obter IP do Minikube para o Jenkins
+echo "🔗 Obtendo IP do Minikube..."
+MINIKUBE_IP=$(minikube ip)
+echo "    -> IP do Minikube: ${MINIKUBE_IP}"
 
 # Aguardar o API server ficar ativo
 echo "⌛ Aguardando API server (até 120s)..."
@@ -64,16 +70,20 @@ kubectl wait --for=condition=Ready nodes --all --timeout=120s
 echo "🔌 Habilitando addon ingress no Minikube..."
 minikube addons enable ingress || echo "    -> Falha ignorada ao habilitar ingress"
 
-# Registry local
-echo "📦 Configurando registry local..."
-if ! docker ps --format '{{.Names}}' | grep -q '^registry$'; then
-  docker run -d --restart=always -p 5000:5000 --name registry registry:2
+# Registry local dentro do Minikube
+echo "📦 Configurando registry local dentro do Minikube..."
+if ! minikube ssh "docker ps --format '{{.Names}}'" | grep -q '^registry$'; then
+    minikube ssh -- "docker run -d -p 5000:5000 --restart=always --name registry registry:2"
 fi
 
 # Instalar ArgoCD no cluster
 echo "🎯 Instalando ArgoCD no cluster..."
 kubectl get ns argocd >/dev/null 2>&1 || kubectl create ns argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Criar namespace da aplicação
+echo "🏗️  Criando namespace da aplicação 'hw-app'..."
+kubectl get ns hw-app >/dev/null 2>&1 || kubectl create ns hw-app
 
 # Jenkins via Docker
 echo "🔧 Configurando Jenkins em container Docker..."
@@ -83,6 +93,9 @@ docker rm -f jenkins >/dev/null 2>&1 || true
 docker volume rm jenkins_home >/dev/null 2>&1 || true
 docker volume create jenkins_home >/dev/null || true
 
+# Adicionar usuário jenkins ao grupo docker do host
+DOCKER_GID=$(getent group docker | cut -d: -f3)
+
 # Criar container Jenkins
 docker run -d \
   --name jenkins \
@@ -90,11 +103,29 @@ docker run -d \
   -p 8080:8080 -p 50000:50000 \
   -v jenkins_home:/var/jenkins_home \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$DOCKER_GID" \
+  -e MINIKUBE_IP="${MINIKUBE_IP}" \
   jenkins/jenkins:2.440.3-jdk17
 
 # Aguardar container iniciar
 echo "⏳ Aguardando Jenkins iniciar (30s)..."
 sleep 30
+
+# Instalar Docker CLI no container
+echo "🔧 Instalando Docker CLI no container Jenkins..."
+docker exec -u 0 jenkins apt-get update
+docker exec -u 0 jenkins apt-get install -y ca-certificates curl
+docker exec -u 0 jenkins install -m 0755 -d /etc/apt/keyrings
+docker exec -u 0 jenkins curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+docker exec -u 0 jenkins chmod a+r /etc/apt/keyrings/docker.asc
+docker exec -u 0 jenkins sh -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list'
+docker exec -u 0 jenkins apt-get update
+docker exec -u 0 jenkins apt-get install -y docker-ce-cli
+
+# Reiniciar Jenkins para aplicar alterações
+echo "🔄 Reiniciando Jenkins..."
+docker restart jenkins
+sleep 15
 
 echo "✅ Instalação concluída!"
 echo "Acesse Jenkins: http://localhost:8080"

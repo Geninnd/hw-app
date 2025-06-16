@@ -1,225 +1,148 @@
 # Hello World App
 
-Este repositório contém uma aplicação Hello World com pipeline CI/CD utilizando GitOps.
+Este repositório contém uma aplicação "Hello World" com uma pipeline de CI/CD utilizando Jenkins, ArgoCD e GitOps.
 
 ## Pré-requisitos
 
-- Sistema operacional Linux (Ubuntu/Debian)
-- Acesso sudo
-- Conta no GitHub
+- Sistema operacional baseado em Linux (testado em Ubuntu/Debian).
+- Acesso `sudo` para instalação de pacotes.
+- Uma conta no GitHub.
 
-## 1. Fork dos Repositórios
+## 1. Preparação dos Repositórios
 
-1. Faça fork dos repositórios:
-   - Este repositório (`hw-app`)
-   - Repositório de manifestos (`hw-k8s`)
+Antes de começar, você precisa ter sua própria cópia dos repositórios.
 
-2. Clone seus forks localmente:
-   ```bash
-   git clone https://github.com/SEU_USUARIO/hw-app.git
-   git clone https://github.com/SEU_USUARIO/hw-k8s.git
-   ```
+1.  **Faça um Fork** de ambos os repositórios para a sua conta do GitHub:
+    *   Repositório da Aplicação: `hw-app`
+    *   Repositório de Manifestos Kubernetes: `hw-k8s`
 
-## 2. Instalação das Ferramentas
+2.  **Clone o seu fork** da aplicação (`hw-app`) para a sua máquina local:
+    ```bash
+    git clone https://github.com/SEU_USUARIO/hw-app.git
+    cd hw-app
+    ```
+    Substitua `SEU_USUARIO` pelo seu nome de usuário do GitHub.
 
-Execute o script de instalação:
-```bash
-cd hw-app
-chmod +x infra/install.sh
-./infra/install.sh
-```
+## 2. Instalação e Configuração do Ambiente
 
-O script instalará:
-- Docker
-- kubectl e Minikube
-- Jenkins (instalação local)
-- ArgoCD
+O ambiente de desenvolvimento (Minikube, Jenkins, ArgoCD, etc.) é configurado automaticamente por um único script.
 
-## 3. Gerando o Token do GitHub (Personal Access Token)
+- **Execute o script de instalação:**
+  ```bash
+  chmod +x infra/install.sh
+  ./infra/install.sh
+  ```
+  Este comando irá baixar e configurar todas as ferramentas necessárias. O processo pode levar alguns minutos.
 
-Para que o Jenkins acesse seus repositórios privados ou faça push nos manifestos, é necessário um token do GitHub:
+## 3. Configuração do Jenkins
 
-1. Acesse: [https://github.com/settings/tokens](https://github.com/settings/tokens)
-2. Clique em "Generate new token" (Classic).
-3. Dê um nome (ex: `jenkins-token`), selecione a validade e marque os escopos:
-   - `repo` (acesso total aos repositórios)
-   - `workflow` (opcional, para GitHub Actions)
-4. Gere o token e **salve em local seguro** (você verá o token apenas uma vez).
-5. Use esse token ao configurar as credenciais no Jenkins.
+Após a instalação, você precisa configurar o Jenkins para que ele possa se comunicar com seus repositórios no GitHub.
 
-## 4. Iniciando o registro Docker dentro do Minikube
+### 3.1. Crie um Personal Access Token (PAT) no GitHub
 
-> **Importante:** O registro Docker deve rodar dentro do Minikube para que o cluster Kubernetes consiga acessar as imagens via `localhost:5000`.
+1.  Acesse a página de tokens do GitHub: [github.com/settings/tokens](https://github.com/settings/tokens).
+2.  Clique em **Generate new token** e selecione **Generate new token (classic)**.
+3.  Dê um nome para o token (ex: `jenkins-token`).
+4.  Selecione a data de expiração.
+5.  Marque o escopo **`repo`** (acesso total aos repositórios).
+6.  Clique em **Generate token** e **guarde o token em um local seguro**. Você não poderá vê-lo novamente.
 
-1. Inicie o Minikube com suporte a registro inseguro:
-   ```bash
-   minikube stop
-   minikube start --insecure-registry="localhost:5000"
-   ```
+### 3.2. Configure as Credenciais no Jenkins
 
-2. Inicie o registro dentro do Minikube:
-   ```bash
-   minikube ssh -- "docker run -d -p 5000:5000 --restart=always --name registry registry:2"
-   ```
+1.  **Acesse o Jenkins**: Abra [http://localhost:8080](http://localhost:8080) no seu navegador.
 
-3. Verifique se o registro está rodando:
-   ```bash
-   minikube ssh "curl -s http://localhost:5000/v2/_catalog"
-   # Deve retornar: {"repositories":[]}
-   ```
+2.  **Obtenha a senha inicial**: O script de instalação exibe a senha no final. Se precisar, execute o comando abaixo em seu terminal:
+    ```bash
+    docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+    ```
 
-## 5. Build e push das imagens para o registro do Minikube
+3.  **Configure as credenciais necessárias**:
+    - Vá para **Manage Jenkins → Credentials → System → Global credentials (unrestricted)**.
+    - Clique em **Add Credentials**.
 
-Antes de buildar e dar push, direcione o Docker do seu terminal para o ambiente do Minikube:
+    - **Credencial 1: GitHub (Usuário e Token)**
+      - **Kind**: `Username with password`
+      - **ID**: `github-credentials`
+      - **Description**: `Credenciais de acesso ao GitHub`
+      - **Username**: Seu nome de usuário do GitHub.
+      - **Password**: O Personal Access Token que você acabou de criar.
 
-```bash
-eval $(minikube docker-env)
-```
+    - **Credencial 2: URL do Repositório de Manifestos**
+      - **Kind**: `Secret text`
+      - **ID**: `manifests-repo-url`
+      - **Description**: `URL do repositório de manifestos`
+      - **Secret**: A URL do seu fork do `hw-k8s`, **sem** o `https://`.
+        - Exemplo: `github.com/SEU_USUARIO/hw-k8s.git`
 
-Agora, faça o build e o push da imagem:
+### 3.3. Crie o Pipeline
 
-```bash
-cd hw-app
-# Use o comando dentro da pasta hw-app
-# Exemplo para tag 14:
-docker build -t localhost:5000/hw-app:14 -f infra/Dockerfile .
-docker push localhost:5000/hw-app:14
-```
+1.  Na página inicial do Jenkins, clique em **New Item**.
+2.  Dê um nome ao pipeline (ex: `hw-app`) e selecione **Pipeline**. Clique em **OK**.
+3.  Na aba **Pipeline**, defina as seguintes configurações:
+    - **Definition**: `Pipeline script from SCM`
+    - **SCM**: `Git`
+    - **Repository URL**: A URL do seu fork do `hw-app`.
+      - Exemplo: `https://github.com/SEU_USUARIO/hw-app.git`
+    - **Credentials**: Selecione `github-credentials`.
+    - **Branch Specifier**: `*/main`
+    - **Script Path**: `infra/Jenkinsfile`
+4.  Salve o pipeline.
 
-> **Atenção:** O contexto do build (`.`) deve conter a pasta `src/` e o Dockerfile deve ser referenciado corretamente.
+## 4. Configuração do ArgoCD
 
-## 6. Configuração do Jenkins
+Acesse a interface do ArgoCD e configure-o para observar seu repositório de manifestos.
 
-1. O Jenkins já deve estar rodando via Docker após executar o script de instalação.
+1.  **Obtenha a senha do ArgoCD**:
+    ```bash
+    kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+    ```
 
-2. Obtenha a senha inicial:
-   ```bash
-   docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
-   ```
+2.  **Acesse a interface**: Encaminhe a porta do ArgoCD para o seu `localhost`.
+    ```bash
+    kubectl port-forward svc/argocd-server -n argocd 8443:443
+    ```
+    Acesse [https://localhost:8443](https://localhost:8443) (usuário: `admin`, senha: a que você obteve acima).
 
-3. Acesse Jenkins em [http://localhost:8080](http://localhost:8080)
+3.  **Crie a aplicação**:
+    - Clique em **NEW APP**.
+    - **Application Name**: `hw-app`
+    - **Project**: `default`
+    - **Repository URL**: A URL do seu fork do `hw-k8s`.
+    - **Path**: `manifests`
+    - **Destination Cluster**: `https://kubernetes.default.svc`
+    - **Destination Namespace**: `hw-app` (será criado se não existir)
+    - **Sync Policy**: `Automatic` com a opção `Prune Resources` marcada.
 
-4. Instale os plugins necessários:
-   - Git plugin
-   - Pipeline
-   - Docker Pipeline
-   - Credentials Binding
-   - GitHub Integration
+## 5. Teste o Fluxo Completo
 
-5. Configure as credenciais (Manage Jenkins → Credentials → System → Global):
-   - Adicione "Username with password":
-     - ID: `github-credentials`
-     - Description: GitHub Credentials
-     - Username: seu usuário do GitHub
-     - Password: seu Personal Access Token
-   
-   - Adicione "Secret text":
-     - ID: `manifests-repo-url`
-     - Description: Manifests Repository URL
-     - Secret: URL do seu fork do hw-k8s (sem https://)
+Agora, tudo está pronto. Para testar o pipeline:
 
-6. Crie o pipeline:
-   - Novo Item → Pipeline
-   - Nome: `hw-app`
-   - Pipeline from SCM
-   - URL: URL do seu fork do hw-app
-   - Credentials: selecione github-credentials
-   - Branch: */main
-   - Path: infra/Jenkinsfile
+1.  Faça uma alteração em qualquer arquivo no seu repositório `hw-app` local.
+    ```bash
+    # Exemplo: editando o arquivo principal da aplicação
+    # nano src/main.py
+    ```
 
-## 7. Configuração do Kubernetes
+2.  Faça o commit e o push das alterações:
+    ```bash
+    git add .
+    git commit -m "feat: Testando a pipeline de CI/CD"
+    git push origin main
+    ```
 
-> **Não é mais necessário rodar registry local no host!**
-
-## 8. Configuração do ArgoCD
-
-1. Obter senha e acessar:
-   ```bash
-   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
-   kubectl port-forward svc/argocd-server -n argocd 8443:443
-   ```
-   Acesse: https://localhost:8443 (usuário: admin)
-
-2. Configurar aplicação:
-   - NEW APP
-   - Nome: `hw-app`
-   - Projeto: `default`
-   - Repositório: URL do seu fork do hw-k8s
-   - Path: `manifests`
-   - Cluster: `https://kubernetes.default.svc`
-   - Namespace: `hw-app`
-   - AUTO-SYNC: Enabled
-
-## 9. Configurando Webhook do GitHub com ngrok (para testes locais)
-
-Para que o Jenkins seja notificado automaticamente a cada push no GitHub, configure um webhook usando o ngrok:
-
-1. **Instale o ngrok:**
-   - Acesse o site oficial: [https://ngrok.com/](https://ngrok.com/)
-   - Siga as instruções de instalação e crie uma conta gratuita.
-
-2. **Inicie o ngrok para expor o Jenkins:**
-   ```bash
-   ngrok http 8080
-   ```
-   - O ngrok irá gerar uma URL pública (ex: `https://xxxxxx.ngrok.io`).
-
-3. **Configure o webhook no GitHub:**
-   - No repositório do seu fork do `hw-app`, acesse **Settings > Webhooks > Add webhook**.
-   - Em **Payload URL**, coloque: `https://xxxxxx.ngrok.io/github-webhook/` (ajuste conforme a URL do ngrok e o endpoint do Jenkins).
-   - Content type: `application/json`
-   - Escolha: Just the push event
-   - Salve o webhook.
-
-4. **Teste:**
-   - Faça um push no repositório e verifique se o Jenkins dispara o build automaticamente.
-
-## 10. Teste do Pipeline
-
-1. Faça uma alteração:
-   ```bash
-   cd hw-app
-   # Edite src/main.py
-   git commit -am "test: teste do pipeline"
-   git push
-   ```
-
-2. Acompanhe:
-   - Jenkins: http://localhost:8080
-   - ArgoCD: https://localhost:8443
+O push irá disparar a pipeline no Jenkins, que irá construir a nova imagem, publicá-la no registro local e atualizar o repositório de manifestos. Em seguida, o ArgoCD detectará a mudança e fará o deploy da nova versão no cluster Kubernetes.
 
 ## Troubleshooting
 
-1. **Pods não iniciam (ImagePullBackOff):**
-   - Verifique se a imagem foi enviada para o registro dentro do Minikube:
-     ```bash
-     minikube ssh "curl -s http://localhost:5000/v2/_catalog"
-     ```
-   - Certifique-se de que o manifest do deployment está usando a tag correta:
-     ```yaml
-     image: localhost:5000/hw-app:<TAG>
-     ```
-   - Se necessário, force o redeploy:
-     ```bash
-     kubectl rollout restart deployment hw-app -n hw-app
-     ```
+- **Erro `ImagePullBackOff` no Kubernetes**:
+  - **Causa Comum**: O cluster não consegue encontrar a imagem.
+  - **Verificação**: Certifique-se de que o registro Docker está rodando dentro do Minikube. A pipeline do Jenkins é responsável por atualizar o `deployment.yaml` com o endereço IP correto do registro e a tag da imagem.
+  - **Comando útil**: `kubectl describe pod <NOME_DO_POD> -n hw-app` para ver mais detalhes do erro.
 
-2. **Jenkins não faz push para o registro:**
-   - Certifique-se de que o Jenkins está rodando com acesso ao Docker do host.
-   - Se for build manual, sempre use `eval $(minikube docker-env)` antes do build/push.
+- **Build falhando no Jenkins**:
+  - Verifique os logs da build no Jenkins para identificar o estágio que falhou.
+  - Certifique-se de que todas as credenciais foram criadas com os **IDs corretos**.
 
-3. **ArgoCD não sincroniza:**
-   ```bash
-   argocd app get hw-app
-   argocd app sync hw-app
-   ```
-
-## Fluxo correto para rodar a aplicação
-
-1. Inicie o Minikube com o registro inseguro.
-2. Suba o registro Docker dentro do Minikube.
-3. Direcione o Docker do terminal para o ambiente do Minikube.
-4. Build e push da imagem para `localhost:5000`.
-5. Garanta que o manifest do deployment usa `localhost:5000/hw-app:<TAG>`.
-6. Sincronize pelo ArgoCD.
-7. Pronto! O pod deve subir sem erros.
+- **ArgoCD não sincroniza**:
+  - Acesse a interface do ArgoCD e verifique o status da aplicação `hw-app`.
+  - Use o botão **Refresh** para forçar a verificação do repositório Git e o botão **Sync** para aplicar as mudanças manualmente se necessário.
