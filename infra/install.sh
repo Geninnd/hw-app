@@ -41,8 +41,10 @@ fi
 
 # Parar e remover Minikube existente
 echo "🧹 Limpando instalação anterior do Minikube..."
-minikube stop || true
-minikube delete || true
+if docker ps --format '{{.Names}}' | grep -q '^minikube$'; then
+  minikube stop
+fi
+minikube delete --all --purge >/dev/null 2>&1 || true
 
 # Iniciar Minikube com configuração específica
 echo "🚀 Iniciando Minikube..."
@@ -78,6 +80,8 @@ echo "🔧 Configurando Jenkins em container Docker..."
 docker volume create jenkins_home >/dev/null || true
 
 docker rm -f jenkins >/dev/null 2>&1 || true
+docker volume rm jenkins_home >/dev/null 2>&1 || true
+docker volume create jenkins_home >/dev/null || true
 
 # Criar container Jenkins
 docker run -d \
@@ -86,18 +90,14 @@ docker run -d \
   -p 8080:8080 -p 50000:50000 \
   -v jenkins_home:/var/jenkins_home \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  --user root \
-  jenkins/jenkins:lts-jdk11
+  jenkins/jenkins:2.440.3-jdk17
 
 # Aguardar container iniciar
 echo "⏳ Aguardando Jenkins iniciar (30s)..."
 sleep 30
 
-# Ajustar permissões
-echo "🔧 Ajustando permissões..."
-docker exec jenkins chown -R jenkins:jenkins /var/jenkins_home
-
 echo "✅ Instalação concluída!"
 echo "Acesse Jenkins: http://localhost:8080"
 echo "Para obter a senha inicial do Jenkins, execute:"
 echo "docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword"
+echo "Aguarde alguns segundos após a inicialização para o arquivo da senha ser criado."
