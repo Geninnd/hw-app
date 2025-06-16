@@ -1,6 +1,6 @@
 venv/
 .env
-
+*log
 jenkins-keys/
 src/__pycache__
 

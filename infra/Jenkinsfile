@@ -4,7 +4,7 @@ pipeline {
     environment {
         // Variáveis do projeto
         APP_NAME = 'hw-app'
-        DOCKER_REGISTRY = 'host.docker.internal:5000'
+        DOCKER_REGISTRY = 'localhost:5000'
         
         // Credenciais do GitHub
         GIT_CREDS = credentials('github-credentials')
