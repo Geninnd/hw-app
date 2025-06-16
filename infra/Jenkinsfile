@@ -4,7 +4,12 @@ pipeline {
     environment {
         // Variáveis do projeto
         APP_NAME = 'hw-app'
-        DOCKER_REGISTRY = "${env.MINIKUBE_IP}:5000"
+        
+        // URL para o Jenkins (host) fazer PUSH da imagem
+        DOCKER_REGISTRY_PUSH = "${env.MINIKUBE_IP}:5000"
+        
+        // URL para o Kubernetes (cluster) fazer PULL da imagem
+        DOCKER_REGISTRY_PULL = "localhost:5000"
         
         // Credenciais do GitHub
         GIT_CREDS = credentials('github-credentials')
@@ -23,8 +28,8 @@ pipeline {
             steps {
                 script {
                     sh """
-                        docker build -t ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER} -f infra/Dockerfile .
-                        docker push ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER}
+                        docker build -t ${DOCKER_REGISTRY_PUSH}/${APP_NAME}:${BUILD_NUMBER} -f infra/Dockerfile .
+                        docker push ${DOCKER_REGISTRY_PUSH}/${APP_NAME}:${BUILD_NUMBER}
                     """
                 }
             }
@@ -40,7 +45,7 @@ pipeline {
                             cd hw-k8s/manifests
                             
                             # Atualizar a tag da imagem no deployment
-                            sed -i 's|image: .*/${APP_NAME}:.*|image: ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER}|' deployment.yaml
+                            sed -i 's|image: .*/${APP_NAME}:.*|image: ${DOCKER_REGISTRY_PULL}/${APP_NAME}:${BUILD_NUMBER}|' deployment.yaml
                             
                             # Configurar Git e fazer push das alterações
                             git config --global user.email "jenkins@local.dev"

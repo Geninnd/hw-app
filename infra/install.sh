@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "🐳 Redefinindo contexto Docker para o daemon do host..."
+eval $(minikube docker-env -u) || true
+
 echo "🚀 Iniciando instalação das ferramentas necessárias..."
 
 # Função para checar existência de comando
@@ -8,7 +11,7 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 echo "📦 Atualizando repositórios e instalando pacotes básicos..."
 sudo apt update
-sudo apt install -y git docker.io curl unzip
+sudo apt install -y git docker.io curl unzip jq
 
 echo "🐳 Habilitando e configurando Docker..."
 sudo systemctl enable --now docker
@@ -39,15 +42,43 @@ if ! command_exists argocd; then
   rm argocd-linux-amd64
 fi
 
-# Parar e remover Minikube existente
+# Parar e remover Minikube existente para um início limpo
 echo "🧹 Limpando instalação anterior do Minikube..."
-if docker ps --format '{{.Names}}' | grep -q '^minikube$'; then
-  minikube stop
-fi
+minikube stop >/dev/null 2>&1 || true
 minikube delete --all --purge >/dev/null 2>&1 || true
 
-# Iniciar Minikube com configuração específica
-echo "🚀 Iniciando Minikube com registro inseguro..."
+# --- ETAPA 1: INICIAR MINIKUBE E CONFIGURAR DOCKER ---
+
+echo "🚀 Iniciando Minikube com a configuração base..."
+minikube start \
+  --driver=docker \
+  --kubernetes-version=v1.26.3
+
+echo "🔗 Obtendo IP real do Minikube..."
+MINIKUBE_IP=$(minikube ip)
+echo "    -> IP do Minikube: ${MINIKUBE_IP}"
+
+echo "🔐 Configurando o Docker do host para confiar no registro do Minikube..."
+DAEMON_JSON="/etc/docker/daemon.json"
+REGISTRY_ADDR="${MINIKUBE_IP}:5000"
+
+if ! sudo test -f "${DAEMON_JSON}"; then echo "{}" | sudo tee "${DAEMON_JSON}" > /dev/null; fi
+ORIGINAL_CONFIG=$(sudo cat "${DAEMON_JSON}")
+MODIFIED_CONFIG=$(echo "${ORIGINAL_CONFIG}" | sudo jq --arg addr "${REGISTRY_ADDR}" '."insecure-registries" = (."insecure-registries" // [] | . + [$addr] | unique)')
+
+if [ "${ORIGINAL_CONFIG}" != "${MODIFIED_CONFIG}" ]; then
+  echo "    -> Adicionando '${REGISTRY_ADDR}' a ${DAEMON_JSON}..."
+  echo "${MODIFIED_CONFIG}" | sudo tee "${DAEMON_JSON}" > /dev/null
+  echo "🔄 Reiniciando o Docker para aplicar as alterações..."
+  sudo systemctl restart docker
+  echo "    -> Docker reiniciado."
+else
+  echo "    -> O Docker do host já está configurado corretamente."
+fi
+
+# --- ETAPA 2: REATIVAR MINIKUBE E FINALIZAR A CONFIGURAÇÃO ---
+
+echo "🚀 Reativando e finalizando a configuração do Minikube..."
 minikube start \
   --driver=docker \
   --kubernetes-version=v1.26.3 \
@@ -57,12 +88,6 @@ minikube start \
   --addons=default-storageclass \
   --insecure-registry="localhost:5000"
 
-# Obter IP do Minikube para o Jenkins
-echo "🔗 Obtendo IP do Minikube..."
-MINIKUBE_IP=$(minikube ip)
-echo "    -> IP do Minikube: ${MINIKUBE_IP}"
-
-# Aguardar o API server ficar ativo
 echo "⌛ Aguardando API server (até 120s)..."
 kubectl wait --for=condition=Ready nodes --all --timeout=120s
 
