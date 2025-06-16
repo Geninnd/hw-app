@@ -12,7 +12,7 @@ echo "📦 Instalando dependências básicas..."
 sudo apt update
 sudo apt install -y git docker.io curl unzip
 
-# Configurar Docker
+# Docker
 echo "🐳 Configurando Docker..."
 if ! command_exists docker; then
     sudo systemctl start docker
@@ -21,7 +21,7 @@ if ! command_exists docker; then
     newgrp docker
 fi
 
-# Instalar kubectl
+# kubectl
 echo "☸️ Instalando kubectl..."
 if ! command_exists kubectl; then
     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
@@ -29,7 +29,7 @@ if ! command_exists kubectl; then
     rm kubectl
 fi
 
-# Instalar Minikube
+# Minikube
 echo "🔄 Instalando Minikube..."
 if ! command_exists minikube; then
     curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
@@ -37,7 +37,7 @@ if ! command_exists minikube; then
     rm minikube-linux-amd64
 fi
 
-# Instalar ArgoCD CLI
+# ArgoCD CLI
 echo "🎯 Instalando ArgoCD CLI..."
 if ! command_exists argocd; then
     curl -sLO https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
