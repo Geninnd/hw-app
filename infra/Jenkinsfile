@@ -15,7 +15,6 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                // Checkout do código fonte
                 checkout scm
             }
         }
@@ -23,7 +22,6 @@ pipeline {
         stage('Build') {
             steps {
                 script {
-                    // Build e push da imagem Docker
                     sh """
                         docker build -t ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER} -f infra/Dockerfile .
                         docker push ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER}
