@@ -55,11 +55,6 @@ pipeline {
     }
 
     post {
-        always {
-            node {
-                cleanWs()
-            }
-        }
         success {
             echo "Pipeline concluída com sucesso! Nova versão: ${BUILD_NUMBER}"
         }
