@@ -132,7 +132,17 @@ Agora, tudo está pronto. Para testar o pipeline:
 
 O push irá disparar a pipeline no Jenkins, que irá construir a nova imagem, publicá-la no registro local e atualizar o repositório de manifestos. Em seguida, o ArgoCD detectará a mudança e fará o deploy da nova versão no cluster Kubernetes.
 
-## Troubleshooting
+## 6. Acessando a Aplicação
+
+Depois que o ArgoCD sincronizar a aplicação, você pode acessá-la diretamente no seu navegador.
+
+- **Execute o seguinte comando** em seu terminal:
+  ```bash
+  minikube service hw-app -n hw-app
+  ```
+Este comando cria um túnel de acesso ao serviço da aplicação e abre automaticamente a URL no seu navegador padrão. Obs: nao feche o terminal.
+
+## 7. Troubleshooting
 
 - **Erro `ImagePullBackOff` no Kubernetes**:
   - **Causa Comum**: O cluster não consegue encontrar a imagem.
