@@ -1,85 +1,103 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 echo "🚀 Iniciando instalação das ferramentas necessárias..."
 
-# Função para verificar se comando existe
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
+# Função para checar existência de comando
+command_exists() { command -v "$1" >/dev/null 2>&1; }
 
-# Instalar dependências básicas
-echo "📦 Instalando dependências básicas..."
+echo "📦 Atualizando repositórios e instalando pacotes básicos..."
 sudo apt update
 sudo apt install -y git docker.io curl unzip
 
-# Docker
-echo "🐳 Configurando Docker..."
-if ! command_exists docker; then
-    sudo systemctl start docker
-    sudo systemctl enable docker
-    sudo usermod -aG docker $USER
-    newgrp docker
-fi
+echo "🐳 Habilitando e configurando Docker..."
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
 
 # kubectl
-echo "☸️ Instalando kubectl..."
 if ! command_exists kubectl; then
-    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/
-    rm kubectl
+  echo "☸️ Instalando kubectl..."
+  K8S_VER="v1.26.3"  # Versão estável específica
+  curl -LO "https://dl.k8s.io/release/${K8S_VER}/bin/linux/amd64/kubectl"
+  sudo install kubectl /usr/local/bin/
+  rm kubectl
 fi
 
 # Minikube
-echo "🔄 Instalando Minikube..."
 if ! command_exists minikube; then
-    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-    sudo install minikube-linux-amd64 /usr/local/bin/minikube
-    rm minikube-linux-amd64
+  echo "🔄 Instalando Minikube..."
+  curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+  sudo install minikube-linux-amd64 /usr/local/bin/minikube
+  rm minikube-linux-amd64
 fi
 
 # ArgoCD CLI
-echo "🎯 Instalando ArgoCD CLI..."
 if ! command_exists argocd; then
-    curl -sLO https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-    sudo install -o root -g root -m 0755 argocd-linux-amd64 /usr/local/bin/argocd
-    rm argocd-linux-amd64
+  echo "🎯 Instalando ArgoCD CLI..."
+  curl -sLO https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+  sudo install argocd-linux-amd64 /usr/local/bin/argocd
+  rm argocd-linux-amd64
 fi
 
-# Instalar
-echo "🔧 Instalando Jenkins..."
-curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee \
-    /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+# Parar e remover Minikube existente
+echo "🧹 Limpando instalação anterior do Minikube..."
+minikube stop || true
+minikube delete || true
 
-echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
-    https://pkg.jenkins.io/debian-stable binary/ | sudo tee \
-    /etc/apt/sources.list.d/jenkins.list > /dev/null
-
-sudo apt-get update
-sudo apt-get install -y jenkins
-
-# Garantir que Jenkins tenha acesso ao Docker
-sudo usermod -aG docker jenkins
-sudo systemctl restart jenkins
-
-# Iniciar Minikube
+# Iniciar Minikube com configuração específica
 echo "🚀 Iniciando Minikube..."
-minikube start --driver=docker
+minikube start \
+  --driver=docker \
+  --kubernetes-version=v1.26.3 \
+  --memory=4096 \
+  --cpus=2 \
+  --addons=storage-provisioner \
+  --addons=default-storageclass
 
-# Habilitar ingress
-echo "🔌 Habilitando Ingress no Minikube..."
-minikube addons enable ingress
+# Aguardar o API server ficar ativo
+echo "⌛ Aguardando API server (até 120s)..."
+kubectl wait --for=condition=Ready nodes --all --timeout=120s
 
-# Configurar registry local
+# Habilitar Ingress
+echo "🔌 Habilitando addon ingress no Minikube..."
+minikube addons enable ingress || echo "    -> Falha ignorada ao habilitar ingress"
+
+# Registry local
 echo "📦 Configurando registry local..."
-docker run -d -p 5000:5000 --name registry registry:2
+if ! docker ps --format '{{.Names}}' | grep -q '^registry$'; then
+  docker run -d --restart=always -p 5000:5000 --name registry registry:2
+fi
 
 # Instalar ArgoCD no cluster
 echo "🎯 Instalando ArgoCD no cluster..."
-kubectl create namespace argocd
+kubectl get ns argocd >/dev/null 2>&1 || kubectl create ns argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-echo "✅ Instalação concluída! Por favor, siga as instruções no README.md para:"
-echo "  1. Fazer fork dos repositórios"
-echo "  2. Configurar credenciais do GitHub no Jenkins"
-echo "  3. Configurar Jenkins"
-echo "  4. Configurar ArgoCD" 
+# Jenkins via Docker
+echo "🔧 Configurando Jenkins em container Docker..."
+docker volume create jenkins_home >/dev/null || true
+
+docker rm -f jenkins >/dev/null 2>&1 || true
+
+# Criar container Jenkins
+docker run -d \
+  --name jenkins \
+  --restart=unless-stopped \
+  -p 8080:8080 -p 50000:50000 \
+  -v jenkins_home:/var/jenkins_home \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --user root \
+  jenkins/jenkins:lts-jdk11
+
+# Aguardar container iniciar
+echo "⏳ Aguardando Jenkins iniciar (30s)..."
+sleep 30
+
+# Ajustar permissões
+echo "🔧 Ajustando permissões..."
+docker exec jenkins chown -R jenkins:jenkins /var/jenkins_home
+
+echo "✅ Instalação concluída!"
+echo "Acesse Jenkins: http://localhost:8080"
+echo "Para obter a senha inicial do Jenkins, execute:"
+echo "docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword"

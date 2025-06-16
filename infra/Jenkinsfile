@@ -19,7 +19,7 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Build e Push') {
             steps {
                 script {
                     sh """
